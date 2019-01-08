@@ -1,6 +1,6 @@
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
-
+using ServiceStack.Text;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -31,8 +31,10 @@ namespace MvL_DuoGeoLoc
 
             List<SchoolInfo> ScholenLijst = new List<SchoolInfo>();
 
+            
+
             using (var reader = new StreamReader("vestigingenso.csv"))
-            using (var csv = new CsvReader(reader))
+            using (var csv = new CsvHelper.CsvReader(reader))
             {
                 csv.Configuration.Delimiter = ",";
                 csv.Configuration.HasHeaderRecord = true;
@@ -42,6 +44,22 @@ namespace MvL_DuoGeoLoc
 
                 foreach (var record in records)
                 {
+                    string adress = record.STRAATNAAM + " " + record.HUISNUMMERTOEVOEGING + ", " + record.POSTCODE + ", " + record.PLAATSNAAM;
+                    string stop_lat = null;
+                    string stop_lng = null;
+
+                    var geolocation = Geolocate(adress);
+                    if (geolocation != null)
+                    {
+                        stop_lat = geolocation.Lat;
+                        stop_lng = geolocation.Lng;
+                    }
+
+                    stop_lat = stop_lat.Replace(',', '.');
+                    stop_lng = stop_lng.Replace(',', '.');
+
+
+
                     ScholenLijst.Add(new SchoolInfo {
                         VESTIGINGSNAAM = record.VESTIGINGSNAAM,
                         STRAATNAAM = record.STRAATNAAM,
@@ -51,7 +69,9 @@ namespace MvL_DuoGeoLoc
                         TELEFOONNUMMER = record.TELEFOONNUMMER,
                         INTERNETADRES = record.INTERNETADRES,
                         DENOMINATIE = record.DENOMINATIE,
-                        ONDERWIJS = record.ONDERWIJS
+                        ONDERWIJS = record.ONDERWIJS,
+                        LAT = stop_lat,
+                        LNG = stop_lng
                     });
                 }
             }
@@ -60,6 +80,8 @@ namespace MvL_DuoGeoLoc
 
 
         }
+
+        private static string GoogleGeoCodeApikey = "";
 
         public class SchoolInfo
         {
@@ -72,9 +94,55 @@ namespace MvL_DuoGeoLoc
             public string TELEFOONNUMMER { get; set; }
             public string INTERNETADRES { get; set; }
             public string ONDERWIJS { get; set; }
-            public double LAT { get; set; }
-            public double LNG { get; set; }
+            public string LAT { get; set; }
+            public string LNG { get; set; }
 
+        }
+
+        private static GeoLocation Geolocate(string address)
+        {
+            string location = address + ", Nwderland";
+            string url = "https://maps.googleapis.com/maps/api/geocode/json?address=" + location + "&key=" + GoogleGeoCodeApikey;
+
+            var httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url);
+            httpWebRequest.ContentType = "application/json";
+            httpWebRequest.Method = "GET";
+
+            GeoLocation gLocation = null;
+
+            try
+            {
+                var httpResponse = (HttpWebResponse)httpWebRequest.GetResponse();
+                using (var reader = new StreamReader(httpResponse.GetResponseStream()))
+                {
+                    var response = reader.ReadToEnd();
+                    var gResponse = JsonObject.Parse(response);
+                    if (gResponse.Get("status").ToUpper() == "OK")
+                    {
+
+                        var geometry = JsonObject.Parse(response)
+                        .ArrayObjects("results")[0]
+                        .Object("geometry")
+                        .Object("location")
+                        .ConvertTo<GeoLocation>();
+
+                        if (geometry != null)
+                        {
+                            return geometry;
+                        }
+                    }
+                }
+            }
+            catch
+            { }
+
+            return gLocation;
+        }
+
+        public class GeoLocation
+        {
+            public string Lat { get; set; }
+            public string Lng { get; set; }
         }
     }
 }
